@@ -40,7 +40,7 @@ const Workflow: React.FC = () => {
             <div className="space-y-4 relative z-10 font-mono text-xs text-indigo-400">
               <div>// Workflow Diagram</div>
               <div className="pl-4 border-l border-white/10">
-                [Account] -> [Generate Link] <br/>
+                [Account] -&gt; [Generate Link] <br/>
                 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br/>
                 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[Public Link]<br/>
                 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br/>
