@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MirrorMe Persistence Test</title>
+</head>
+<body>
+    <h2>LocalStorage Test</h2>
+    <button onclick="checkData()">Check Stored Data</button>
+    <button onclick="clearData()">Clear All Data</button>
+    <pre id="output"></pre>
+
+    <script>
+        function checkData() {
+            const output = document.getElementById('output');
+            const data = {
+                users: JSON.parse(localStorage.getItem('mirror_me_users') || '[]'),
+                currentUser: JSON.parse(localStorage.getItem('mirror_me_current_session') || 'null'),
+                links: JSON.parse(localStorage.getItem('mirror_me_links') || '[]'),
+                messages: JSON.parse(localStorage.getItem('mirror_me_messages') || '[]')
+            };
+            output.textContent = JSON.stringify(data, null, 2);
+        }
+
+        function clearData() {
+            localStorage.removeItem('mirror_me_users');
+            localStorage.removeItem('mirror_me_current_session');
+            localStorage.removeItem('mirror_me_links');
+            localStorage.removeItem('mirror_me_messages');
+            alert('All data cleared!');
+        }
+    </script>
+</body>
+</html>
