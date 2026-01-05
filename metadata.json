@@ -1,0 +1,8 @@
+{
+  "name": "Mirror Me - Anonymous Feedback",
+  "description": "A social feedback platform where users can generate anonymous links for friends to leave honest thoughts, advice, and confessions. Features include a dashboard for message management, link customization, and AI-powered sentiment analysis.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

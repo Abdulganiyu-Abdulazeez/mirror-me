@@ -1,0 +1,32 @@
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: number;
+}
+
+export interface FeedbackLink {
+  id: string;
+  userId: string;
+  title: string;
+  prompt: string;
+  type: 'general' | 'advice' | 'confession' | 'first-impression';
+  createdAt: number;
+}
+
+export interface Message {
+  id: string;
+  linkId: string;
+  userId: string; // Recipient ID
+  content?: string; // Text content
+  audioContent?: string; // Base64 audio data
+  contentType: 'text' | 'audio';
+  createdAt: number;
+  sentiment?: string; // Analysis by Gemini
+}
+
+export interface AuthState {
+  user: User | null;
+  isAuthenticated: boolean;
+}
