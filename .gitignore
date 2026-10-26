@@ -4,6 +4,12 @@
 !.env.example
 *.local
 
+# Markdown files (ignore all except README)
+*.md
+**/*.md
+!README.md
+!**/README.md
+
 # Dependencies
 node_modules/
 */node_modules/
