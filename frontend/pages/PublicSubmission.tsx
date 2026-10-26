@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import confetti from 'canvas-confetti';
 import { StorageService } from '../services/storage';
 import { FeedbackLink, User, Message } from '../types';
+import AudioPlayer from '../components/AudioPlayer';
 
 const PublicSubmission: React.FC = () => {
   const { username, linkId } = useParams<{ username: string, linkId: string }>();
@@ -109,7 +111,12 @@ const PublicSubmission: React.FC = () => {
       StorageService.saveMessage(newMessage);
       setIsSubmitting(false);
       setSubmitted(true);
-    }, 1200);
+      confetti({
+        particleCount: 50,
+        spread: 60,
+        origin: { y: 0.6 }
+      });
+    }, 1000);
   };
 
   if (!link || !recipient) {
@@ -194,14 +201,20 @@ const PublicSubmission: React.FC = () => {
           
           <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
             {contentType === 'text' ? (
-              <textarea 
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Type something honest..."
-                className="w-full h-48 bg-white/5 border border-white/10 rounded-2xl p-6 text-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-none shadow-inner"
-                required
-                disabled={isSubmitting}
-              />
+              <div className="space-y-2">
+                <textarea 
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  maxLength={500}
+                  placeholder="Type something honest..."
+                  className="w-full h-48 bg-white/5 border border-white/10 rounded-2xl p-6 text-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-none shadow-inner text-white"
+                  required
+                  disabled={isSubmitting}
+                />
+                <div className="text-right text-[11px] font-mono text-slate-400">
+                  {content.length} / 500 characters
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-48 bg-white/5 border border-white/10 rounded-2xl p-6 border-dashed">
                 {!audioUrl ? (
@@ -234,15 +247,15 @@ const PublicSubmission: React.FC = () => {
                     )}
                   </>
                 ) : (
-                  <div className="flex flex-col items-center space-y-4 w-full px-4">
-                    <audio src={audioUrl} controls className="w-full h-10 filter invert brightness-200" />
+                  <div className="flex flex-col items-center space-y-4 w-full px-2">
+                    <AudioPlayer src={audioUrl} />
                     <button 
                       type="button"
                       onClick={() => {
                         setAudioBlob(null);
                         setAudioUrl(null);
                       }}
-                      className="text-xs text-slate-500 hover:text-red-400 font-bold transition-colors underline"
+                      className="text-xs text-slate-400 hover:text-red-400 font-bold transition-colors underline"
                     >
                       Delete and re-record
                     </button>

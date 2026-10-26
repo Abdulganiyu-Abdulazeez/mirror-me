@@ -9,6 +9,7 @@ export interface User {
 export interface FeedbackLink {
   id: string;
   userId: string;
+  username?: string;
   title: string;
   prompt: string;
   type: 'general' | 'advice' | 'confession' | 'first-impression';
@@ -19,6 +20,7 @@ export interface Message {
   id: string;
   linkId: string;
   userId: string; // Recipient ID
+  recipientUsername?: string;
   content?: string; // Text content
   audioContent?: string; // Base64 audio data
   contentType: 'text' | 'audio';
