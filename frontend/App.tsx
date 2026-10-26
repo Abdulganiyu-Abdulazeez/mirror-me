@@ -13,16 +13,40 @@ import PublicSubmission from './pages/PublicSubmission';
 import Admin from './pages/Admin';
 import Workflow from './pages/Workflow';
 
+import { api } from './services/api';
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = StorageService.getCurrentUser();
-    if (savedUser) {
-      setUser(savedUser);
-    }
-    setLoading(false);
+    const handleAuthInit = async () => {
+      // Check for Supabase OAuth hash fragment: #access_token=...
+      const fullHash = window.location.hash || '';
+      if (fullHash.includes('access_token=')) {
+        // Find index of access_token=
+        const tokenPart = fullHash.substring(fullHash.indexOf('access_token='));
+        const params = new URLSearchParams(tokenPart);
+        const token = params.get('access_token');
+        if (token) {
+          const oauthUser = await api.auth.handleOAuthToken(token);
+          if (oauthUser) {
+            setUser(oauthUser);
+            window.location.hash = '#/dashboard';
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      const savedUser = StorageService.getCurrentUser();
+      if (savedUser) {
+        setUser(savedUser);
+      }
+      setLoading(false);
+    };
+
+    handleAuthInit();
   }, []);
 
   if (loading) {
