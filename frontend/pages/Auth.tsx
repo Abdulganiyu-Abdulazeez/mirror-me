@@ -26,11 +26,11 @@ const Auth: React.FC<AuthProps> = ({ mode, setUser }) => {
       if (mode === 'register') {
         const user = await api.auth.register(username.trim(), email.trim(), password);
         setUser(user);
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       } else {
         const user = await api.auth.login(username.trim(), password);
         setUser(user);
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       }
     } catch (err: any) {
       setError(err.message || 'Authentication failed. Please check your credentials.');
