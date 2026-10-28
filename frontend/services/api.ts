@@ -111,7 +111,26 @@ export const api = {
         StorageService.setCurrentUser(data.user);
         return data.user;
       } catch (err) {
-        console.error('Failed to fetch profile with OAuth token:', err);
+        console.warn('Backend /auth/me failed with OAuth token, attempting JWT decoding fallback:', err);
+        try {
+          const payloadBase64 = token.split('.')[1];
+          if (payloadBase64) {
+            const decoded = JSON.parse(atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/')));
+            const email = decoded.email || '';
+            const rawUsername = decoded.user_metadata?.user_name || decoded.user_metadata?.username || decoded.user_metadata?.name || email.split('@')[0] || 'user';
+            const cleanUsername = rawUsername.toLowerCase().replace(/[^a-z0-9_]/g, '');
+            const user: User = {
+              id: decoded.sub || Math.random().toString(36).substr(2, 9),
+              username: cleanUsername || 'user',
+              email,
+              createdAt: Date.now()
+            };
+            StorageService.setCurrentUser(user);
+            return user;
+          }
+        } catch (decodeErr) {
+          console.error('Failed to parse OAuth JWT token:', decodeErr);
+        }
         return null;
       }
     }
