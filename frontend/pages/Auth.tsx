@@ -41,7 +41,7 @@ const Auth: React.FC<AuthProps> = ({ mode, setUser }) => {
 
   const handleGoogleLogin = () => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://jjjjelglerjoekishnjw.supabase.co';
-    const redirectUrl = `${window.location.origin}/#/dashboard`;
+    const redirectUrl = `${window.location.origin}/`;
     window.location.href = `${supabaseUrl}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectUrl)}`;
   };
 
