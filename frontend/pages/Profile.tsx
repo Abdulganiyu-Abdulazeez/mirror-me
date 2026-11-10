@@ -403,3 +403,4 @@ const Profile: React.FC<ProfileProps> = ({ user, setUser }) => {
 };
 
 export default Profile;
+

@@ -106,7 +106,7 @@ export const api = {
             // Ensure profile exists in public.profiles Table Editor
             if (data.user?.id) {
               try {
-                await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+                const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -121,6 +121,9 @@ export const api = {
                     role: role
                   })
                 });
+                if (!profRes.ok) {
+                  console.warn('Profile direct insert note:', profRes.status, await profRes.text());
+                }
               } catch (profErr) {
                 console.warn('Profile direct insert note:', profErr);
               }
@@ -346,15 +349,59 @@ export const api = {
           const payloadBase64 = token.split('.')[1];
           if (payloadBase64) {
             const decoded = JSON.parse(atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/')));
-            const email = decoded.email || '';
+            const email = (decoded.email || '').toLowerCase();
             const rawUsername = decoded.user_metadata?.user_name || decoded.user_metadata?.username || decoded.user_metadata?.name || email.split('@')[0] || 'user';
-            const cleanUsername = rawUsername.toLowerCase().replace(/[^a-z0-9_]/g, '');
+            let cleanUsername = rawUsername.toLowerCase().replace(/[^a-z0-9_]/g, '');
+            let avatarUrl = decoded.user_metadata?.avatar_url || decoded.picture || null;
+            let role: 'user' | 'admin' = email === 'haypexdev@gmail.com' ? 'admin' : 'user';
+            const userId = decoded.sub;
+
+            // Sync with Supabase public.profiles
+            if (SUPABASE_URL && SUPABASE_ANON && userId) {
+              try {
+                const pRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=*`, {
+                  headers: {
+                    'apikey': SUPABASE_ANON,
+                    'Authorization': `Bearer ${token}`
+                  }
+                });
+                if (pRes.ok) {
+                  const pRows = await pRes.json();
+                  if (pRows && pRows.length > 0) {
+                    cleanUsername = pRows[0].username || cleanUsername;
+                    role = pRows[0].role || role;
+                    avatarUrl = pRows[0].avatar_url || avatarUrl;
+                  } else {
+                    // Profile row doesn't exist yet, insert it
+                    await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON,
+                        'Authorization': `Bearer ${token}`,
+                        'Prefer': 'resolution=merge-duplicates'
+                      },
+                      body: JSON.stringify({
+                        id: userId,
+                        username: cleanUsername,
+                        email: email,
+                        avatar_url: avatarUrl,
+                        role: role
+                      })
+                    });
+                  }
+                }
+              } catch (profErr) {
+                console.warn('OAuth profile sync warning:', profErr);
+              }
+            }
+
             const user: User = {
-              id: decoded.sub || Math.random().toString(36).substr(2, 9),
+              id: userId || Math.random().toString(36).substr(2, 9),
               username: cleanUsername || 'user',
               email,
-              avatarUrl: decoded.user_metadata?.avatar_url || decoded.picture,
-              role: email.toLowerCase() === 'haypexdev@gmail.com' ? 'admin' : 'user',
+              avatarUrl,
+              role,
               createdAt: Date.now()
             };
             StorageService.setCurrentUser(user);
@@ -478,6 +525,8 @@ export const api = {
             };
             StorageService.saveLink(newLink);
             return newLink;
+          } else {
+            console.warn('Supabase direct link creation rejected:', insertRes.status, await insertRes.text());
           }
         } catch (supabaseErr) {
           console.warn('Supabase direct link creation failed:', supabaseErr);
@@ -822,6 +871,8 @@ export const api = {
 
             if (insertRes.ok) {
               return;
+            } else {
+              console.warn('Supabase direct message submission rejected:', insertRes.status, await insertRes.text());
             }
           }
         } catch (supabaseErr) {
@@ -994,7 +1045,9 @@ export const api = {
       // 2. Try Supabase direct (ilike for case-insensitive check across all profiles)
       if (SUPABASE_URL && SUPABASE_ANON) {
         try {
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?username=ilike.${encodeURIComponent(clean)}&id=neq.${encodeURIComponent(currentUserId)}&select=id`, {
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(currentUserId);
+          const excludeParam = isUuid ? `&id=neq.${encodeURIComponent(currentUserId)}` : '';
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?username=ilike.${encodeURIComponent(clean)}${excludeParam}&select=id`, {
             headers: {
               'apikey': SUPABASE_ANON,
               'Authorization': `Bearer ${SUPABASE_ANON}`
@@ -1002,7 +1055,12 @@ export const api = {
           });
           if (res.ok) {
             const rows = await res.json();
-            return Array.isArray(rows) && rows.length === 0;
+            if (Array.isArray(rows)) {
+              if (rows.length === 0) return true;
+              if (isUuid) return false;
+              // If not UUID, verify if matching row belongs to current user
+              return rows.every(r => r.id === currentUserId);
+            }
           }
         } catch (err) {
           console.warn('Supabase username check error:', err);

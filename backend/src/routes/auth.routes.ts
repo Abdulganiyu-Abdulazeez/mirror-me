@@ -174,7 +174,8 @@ router.get('/check-username', async (req: Request, res: Response): Promise<void>
       .select('id')
       .ilike('username', rawUsername);
 
-    if (excludeId) {
+    const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(excludeId);
+    if (excludeId && isValidUuid) {
       query = query.neq('id', excludeId);
     }
 
