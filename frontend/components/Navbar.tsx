@@ -38,6 +38,20 @@ const Navbar: React.FC<NavbarProps> = ({ user, setUser }) => {
                 Admin Panel
               </Link>
             )}
+            <Link 
+              to="/profile" 
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-indigo-500/50 transition-all text-sm group"
+              title="Profile Settings"
+            >
+              {user.avatarUrl ? (
+                <img src={user.avatarUrl} alt={user.username} className="w-6 h-6 rounded-full object-cover ring-1 ring-indigo-500/50" />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white shadow">
+                  {user.username[0]?.toUpperCase() || 'U'}
+                </div>
+              )}
+              <span className="font-semibold text-slate-200 group-hover:text-white transition-colors">@{user.username}</span>
+            </Link>
             <button 
               onClick={handleLogout}
               className="px-4 py-2 text-sm font-semibold rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all"

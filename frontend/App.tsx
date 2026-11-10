@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard';
 import PublicSubmission from './pages/PublicSubmission';
 import Admin from './pages/Admin';
 import Workflow from './pages/Workflow';
+import Profile from './pages/Profile';
 
 import { api } from './services/api';
 
@@ -77,6 +78,7 @@ const App: React.FC = () => {
           <Route path="/login" element={!user ? <Auth mode="login" setUser={setUser} /> : <Navigate to={user.role === 'admin' ? "/admin" : "/dashboard"} replace />} />
           <Route path="/register" element={!user ? <Auth mode="register" setUser={setUser} /> : <Navigate to={user.role === 'admin' ? "/admin" : "/dashboard"} replace />} />
           <Route path="/dashboard" element={user ? <Dashboard user={user} /> : <Navigate to="/login" replace />} />
+          <Route path="/profile" element={user ? <Profile user={user} setUser={setUser} /> : <Navigate to="/login" replace />} />
           <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to={user ? "/dashboard" : "/login"} replace />} />
           
           {/* Public Routes - Accessible to anyone at all */}

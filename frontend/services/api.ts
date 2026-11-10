@@ -243,6 +243,7 @@ export const api = {
               id: data.user.id,
               username: finalUsername,
               email: data.user.email || emailToUse,
+              avatarUrl: pRows[0]?.avatar_url,
               role,
               createdAt: Date.now()
             };
@@ -321,6 +322,7 @@ export const api = {
               id: suUser.id,
               username: uname,
               email: suUser.email || '',
+              avatarUrl: profs[0]?.avatar_url,
               role,
               createdAt: Date.now()
             };
@@ -351,6 +353,7 @@ export const api = {
               id: decoded.sub || Math.random().toString(36).substr(2, 9),
               username: cleanUsername || 'user',
               email,
+              avatarUrl: decoded.user_metadata?.avatar_url || decoded.picture,
               role: email.toLowerCase() === 'haypexdev@gmail.com' ? 'admin' : 'user',
               createdAt: Date.now()
             };
@@ -655,16 +658,20 @@ export const api = {
               const l = rows[0];
               let recipientUsername = l.username || username;
 
-              const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(l.user_id)}&select=id,username`, {
+              const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(l.user_id)}&select=id,username,avatar_url`, {
                 headers: {
                   'apikey': SUPABASE_ANON,
                   'Authorization': `Bearer ${SUPABASE_ANON}`
                 }
               });
+              let recipientAvatarUrl = '';
               if (profRes.ok) {
                 const profs = await profRes.json();
                 if (profs && profs[0]?.username) {
                   recipientUsername = profs[0].username;
+                }
+                if (profs && profs[0]?.avatar_url) {
+                  recipientAvatarUrl = profs[0].avatar_url;
                 }
               }
 
@@ -682,6 +689,7 @@ export const api = {
                   id: l.user_id,
                   username: recipientUsername,
                   email: '',
+                  avatarUrl: recipientAvatarUrl,
                   createdAt: Date.now()
                 }
               };
@@ -968,6 +976,181 @@ export const api = {
           "What is one piece of advice I secretly need to hear?"
         ];
       }
+    }
+  },
+
+  profile: {
+    // Check if a username is available across ALL users (admins and normal users)
+    checkUsername: async (newUsername: string, currentUserId: string): Promise<boolean> => {
+      const clean = newUsername.trim().toLowerCase();
+      if (!clean || clean.length < 3) return false;
+
+      // 1. Try Backend API
+      try {
+        const res = await request<{ available: boolean }>(`/auth/check-username?username=${encodeURIComponent(clean)}&excludeId=${encodeURIComponent(currentUserId)}`);
+        return res.available;
+      } catch {}
+
+      // 2. Try Supabase direct (ilike for case-insensitive check across all profiles)
+      if (SUPABASE_URL && SUPABASE_ANON) {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?username=ilike.${encodeURIComponent(clean)}&id=neq.${encodeURIComponent(currentUserId)}&select=id`, {
+            headers: {
+              'apikey': SUPABASE_ANON,
+              'Authorization': `Bearer ${SUPABASE_ANON}`
+            }
+          });
+          if (res.ok) {
+            const rows = await res.json();
+            return Array.isArray(rows) && rows.length === 0;
+          }
+        } catch (err) {
+          console.warn('Supabase username check error:', err);
+        }
+      }
+
+      // 3. Fallback to localStorage check
+      const users = StorageService.getUsers();
+      const exists = users.some(u => u.username.toLowerCase() === clean && u.id !== currentUserId);
+      return !exists;
+    },
+
+    uploadAvatar: async (file: File | Blob, userId: string): Promise<string> => {
+      // 1. Try Supabase Storage 'avatars' bucket
+      if (SUPABASE_URL && SUPABASE_ANON) {
+        try {
+          const fileExt = file instanceof File ? file.name.split('.').pop() || 'png' : 'png';
+          const fileName = `avatar-${userId}-${Date.now()}.${fileExt}`;
+          const token = getAuthToken();
+
+          const uploadRes = await fetch(`${SUPABASE_URL}/storage/v1/object/avatars/${fileName}`, {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_ANON,
+              'Authorization': `Bearer ${token || SUPABASE_ANON}`,
+              'Content-Type': file.type || 'image/png'
+            },
+            body: file
+          });
+
+          if (uploadRes.ok) {
+            return `${SUPABASE_URL}/storage/v1/object/public/avatars/${fileName}`;
+          }
+        } catch (storageErr) {
+          console.warn('Supabase storage upload fallback to base64:', storageErr);
+        }
+      }
+
+      // 2. Instant Base64 data URL fallback (guarantees pictures always work immediately)
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    },
+
+    updateProfile: async (userId: string, data: { username: string; avatarUrl?: string }): Promise<User> => {
+      const cleanUsername = data.username.trim().toLowerCase();
+      if (!cleanUsername || cleanUsername.length < 3) {
+        throw new Error('Username must be at least 3 characters long.');
+      }
+
+      // Strict uniqueness verification across all users!
+      const isAvailable = await api.profile.checkUsername(cleanUsername, userId);
+      if (!isAvailable) {
+        throw new Error(`The username "@${cleanUsername}" is already taken by another user. Please choose a different handle.`);
+      }
+
+      // 1. Try Backend API
+      try {
+        const res = await request<{ user: User }>('/auth/profile', {
+          method: 'PUT',
+          body: JSON.stringify({ username: cleanUsername, avatarUrl: data.avatarUrl })
+        });
+        if (res.user) {
+          StorageService.setCurrentUser(res.user);
+          return res.user;
+        }
+      } catch (backendErr: any) {
+        if (backendErr?.message?.includes('already taken')) {
+          throw backendErr;
+        }
+      }
+
+      // 2. Try Supabase direct
+      const token = getAuthToken();
+      if (SUPABASE_URL && SUPABASE_ANON) {
+        try {
+          const updatePayload: any = {
+            username: cleanUsername,
+            updated_at: new Date().toISOString()
+          };
+          if (data.avatarUrl !== undefined) {
+            updatePayload.avatar_url = data.avatarUrl;
+          }
+
+          const updateRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_ANON,
+              'Authorization': `Bearer ${token || SUPABASE_ANON}`,
+              'Prefer': 'return=representation'
+            },
+            body: JSON.stringify(updatePayload)
+          });
+
+          // Sync username across links table as well
+          await fetch(`${SUPABASE_URL}/rest/v1/links?user_id=eq.${encodeURIComponent(userId)}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_ANON,
+              'Authorization': `Bearer ${token || SUPABASE_ANON}`
+            },
+            body: JSON.stringify({ username: cleanUsername })
+          }).catch(() => {});
+
+          if (updateRes.ok) {
+            const updatedRows = await updateRes.json();
+            const row = Array.isArray(updatedRows) ? updatedRows[0] : updatedRows;
+            const currentUser = StorageService.getCurrentUser();
+            const updatedUser: User = {
+              id: userId,
+              username: row?.username || cleanUsername,
+              email: row?.email || currentUser?.email || '',
+              avatarUrl: row?.avatar_url !== undefined ? row.avatar_url : (data.avatarUrl || currentUser?.avatarUrl),
+              role: row?.role || currentUser?.role || 'user',
+              createdAt: currentUser?.createdAt || Date.now()
+            };
+            StorageService.setCurrentUser(updatedUser);
+            return updatedUser;
+          }
+        } catch (supErr) {
+          console.warn('Supabase direct profile update error:', supErr);
+        }
+      }
+
+      // 3. Fallback
+      const currentUser = StorageService.getCurrentUser();
+      const updatedUser: User = {
+        id: userId,
+        username: cleanUsername,
+        email: currentUser?.email || '',
+        avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : currentUser?.avatarUrl,
+        role: currentUser?.role || 'user',
+        createdAt: currentUser?.createdAt || Date.now()
+      };
+
+      const users = StorageService.getUsers();
+      const idx = users.findIndex(u => u.id === userId);
+      if (idx !== -1) {
+        users[idx] = updatedUser;
+        localStorage.setItem('mirror_me_users', JSON.stringify(users));
+      }
+      StorageService.setCurrentUser(updatedUser);
+      return updatedUser;
     }
   }
 };

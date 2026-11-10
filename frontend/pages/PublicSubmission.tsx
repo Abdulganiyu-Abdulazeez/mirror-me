@@ -218,8 +218,12 @@ const PublicSubmission: React.FC = () => {
     <div className="min-h-screen flex flex-col items-center justify-center p-6 pt-24">
       <div className="w-full max-w-xl space-y-8">
         <div className="text-center">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 mx-auto mb-6 flex items-center justify-center text-white text-3xl font-bold shadow-xl border-4 border-white/10">
-            {recipient.username[0]?.toUpperCase() || 'M'}
+          <div className="w-20 h-20 rounded-full overflow-hidden bg-gradient-to-tr from-indigo-500 to-purple-500 mx-auto mb-6 flex items-center justify-center text-white text-3xl font-bold shadow-xl border-4 border-white/10">
+            {recipient.avatarUrl ? (
+              <img src={recipient.avatarUrl} alt={recipient.username} className="w-full h-full object-cover" />
+            ) : (
+              recipient.username[0]?.toUpperCase() || 'M'
+            )}
           </div>
           <h2 className="text-3xl font-extrabold mb-2">@{recipient.username}</h2>
           <div className="inline-block px-4 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-slate-400 uppercase tracking-widest font-bold">
