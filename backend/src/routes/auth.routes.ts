@@ -158,4 +158,100 @@ router.get('/me', requireAuth, (req: Request, res: Response) => {
   res.json({ user: req.user });
 });
 
+// GET /api/v1/auth/check-username
+router.get('/check-username', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rawUsername = String(req.query.username || '').trim().toLowerCase();
+    const excludeId = String(req.query.excludeId || '');
+
+    if (!rawUsername) {
+      res.json({ available: false });
+      return;
+    }
+
+    let query = supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .ilike('username', rawUsername);
+
+    const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(excludeId);
+    if (excludeId && isValidUuid) {
+      query = query.neq('id', excludeId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    res.json({ available: !data || data.length === 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/v1/auth/profile
+router.put('/profile', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { username, avatarUrl } = req.body;
+
+    if (!username || !username.trim()) {
+      res.status(400).json({ error: 'Username is required' });
+      return;
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+
+    // Check uniqueness across ALL profiles (admin or normal)
+    const { data: existing } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .ilike('username', cleanUsername)
+      .neq('id', userId);
+
+    if (existing && existing.length > 0) {
+      res.status(409).json({ error: `Username @${cleanUsername} is already taken. Please choose another.` });
+      return;
+    }
+
+    const updatePayload: any = { username: cleanUsername };
+    if (avatarUrl !== undefined) {
+      updatePayload.avatar_url = avatarUrl;
+    }
+
+    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+      .from('profiles')
+      .update(updatePayload)
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      res.status(400).json({ error: updateError.message });
+      return;
+    }
+
+    // Also update links table username
+    await supabaseAdmin
+      .from('links')
+      .update({ username: cleanUsername })
+      .eq('user_id', userId);
+
+    res.json({
+      user: {
+        id: updatedProfile.id,
+        username: updatedProfile.username,
+        email: updatedProfile.email,
+        avatarUrl: updatedProfile.avatar_url,
+        role: updatedProfile.role,
+        createdAt: new Date(updatedProfile.created_at).getTime()
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

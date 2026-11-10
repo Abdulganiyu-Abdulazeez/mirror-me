@@ -4,12 +4,22 @@ MirrorMe is an anonymous constructive feedback platform designed to give and rec
 
 ---
 
+## ✨ Recent Features & Updates
+
+- **Profile Management (`/#/profile`):** Customizable display usernames and profile pictures with live previews and avatar uploads directly into Supabase Storage (`avatars` bucket).
+- **Real-Time Username Availability:** Live, debounced username checking verifying handle availability across all user accounts in real time.
+- **Password Visibility Toggle:** Eye icon toggle in password input fields for both sign-in and account registration.
+- **Fixed Solid Navigation Bar:** Solid background header overlaying page content smoothly on scroll with profile dropdown and current user handle.
+- **Supabase Master Migration (`SUPABASE_MASTER_FIX.sql`):** Consolidated, 100% idempotent SQL migration with robust RLS policies, storage bucket configurations (`avatars` & `voice-notes`), and an automatic `handle_new_user()` trigger for both Email & Google OAuth signups.
+
+---
+
 ## 🛠️ Tech Stack
 
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, Lucide Icons
 - **Backend:** Node.js, Express, TypeScript, Supabase Service Role
 - **Database & Auth:** Supabase PostgreSQL, Row Level Security (RLS), Supabase Auth (Email + Google OAuth)
-- **Storage:** Supabase Storage (Voice reflections bucket)
+- **Storage:** Supabase Storage (`avatars` & `voice-notes` buckets)
 - **AI / LLM:** Google Gemini API (transcription & analysis)
 
 ---
@@ -23,7 +33,17 @@ MirrorMe is an anonymous constructive feedback platform designed to give and rec
 
 ---
 
-### 2. Backend Setup
+### 2. Database & Supabase Setup
+Run [`SUPABASE_MASTER_FIX.sql`](./SUPABASE_MASTER_FIX.sql) in your Supabase SQL Editor. This single script:
+1. Creates `profiles`, `links`, and `messages` tables with all columns safely.
+2. Applies Row-Level Security (RLS) policies allowing anonymous feedback submissions and authenticated link/profile management.
+3. Sets up the public `avatars` and `voice-notes` storage buckets.
+4. Registers the `handle_new_user()` trigger on `auth.users` to automatically populate `public.profiles` on signup.
+5. Sets `haypexdev@gmail.com` as the primary administrator.
+
+---
+
+### 3. Backend Setup
 1. Navigate into the backend folder:
    ```bash
    cd backend
@@ -47,7 +67,7 @@ MirrorMe is an anonymous constructive feedback platform designed to give and rec
 
 ---
 
-### 3. Frontend Setup
+### 4. Frontend Setup
 1. In a separate terminal, navigate into the frontend folder:
    ```bash
    cd frontend

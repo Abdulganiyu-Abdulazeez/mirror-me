@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard';
 import PublicSubmission from './pages/PublicSubmission';
 import Admin from './pages/Admin';
 import Workflow from './pages/Workflow';
+import Profile from './pages/Profile';
 
 import { api } from './services/api';
 
@@ -32,6 +33,9 @@ const App: React.FC = () => {
           const oauthUser = await api.auth.handleOAuthToken(token);
           if (oauthUser) {
             setUser(oauthUser);
+            if (window.history.replaceState) {
+              window.history.replaceState(null, '', `${window.location.pathname}#/dashboard`);
+            }
             window.location.hash = '#/dashboard';
             setLoading(false);
             return;
@@ -69,18 +73,19 @@ const App: React.FC = () => {
         <Navbar user={user} setUser={setUser} />
         
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={user ? <Navigate to={user.role === 'admin' ? "/admin" : "/dashboard"} replace /> : <Home />} />
           <Route path="/workflow" element={<Workflow />} />
-          <Route path="/login" element={!user ? <Auth mode="login" setUser={setUser} /> : <Navigate to="/dashboard" />} />
-          <Route path="/register" element={!user ? <Auth mode="register" setUser={setUser} /> : <Navigate to="/dashboard" />} />
-          <Route path="/dashboard" element={user ? <Dashboard user={user} /> : <Navigate to="/login" />} />
-          <Route path="/admin" element={user ? <Admin /> : <Navigate to="/login" />} />
+          <Route path="/login" element={!user ? <Auth mode="login" setUser={setUser} /> : <Navigate to={user.role === 'admin' ? "/admin" : "/dashboard"} replace />} />
+          <Route path="/register" element={!user ? <Auth mode="register" setUser={setUser} /> : <Navigate to={user.role === 'admin' ? "/admin" : "/dashboard"} replace />} />
+          <Route path="/dashboard" element={user ? <Dashboard user={user} /> : <Navigate to="/login" replace />} />
+          <Route path="/profile" element={user ? <Profile user={user} setUser={setUser} /> : <Navigate to="/login" replace />} />
+          <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to={user ? "/dashboard" : "/login"} replace />} />
           
-          {/* Public Routes */}
+          {/* Public Routes - Accessible to anyone at all */}
           <Route path="/u/:username/:linkId" element={<PublicSubmission />} />
           
           {/* Fallback */}
-          <Route path="*" element={<Navigate to="/" />} />
+          <Route path="*" element={<Navigate to={user ? (user.role === 'admin' ? "/admin" : "/dashboard") : "/"} replace />} />
         </Routes>
       </div>
     </Router>

@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
 // GET /api/v1/admin/stats
-router.get('/stats', requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.get('/stats', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { count: userCount } = await supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true });
     const { count: messageCount } = await supabaseAdmin.from('messages').select('*', { count: 'exact', head: true });
@@ -25,7 +25,7 @@ router.get('/stats', requireAuth, async (req: Request, res: Response): Promise<v
 });
 
 // GET /api/v1/admin/logs - Activity logs
-router.get('/logs', requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.get('/logs', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { data: logs, error } = await supabaseAdmin
       .from('messages')
