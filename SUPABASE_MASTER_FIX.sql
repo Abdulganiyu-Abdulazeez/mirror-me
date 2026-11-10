@@ -228,3 +228,4 @@ SET
 UPDATE public.profiles 
 SET role = 'admin' 
 WHERE LOWER(email) = 'haypexdev@gmail.com';
+
