@@ -13,6 +13,7 @@ import {
   ExternalLink 
 } from 'lucide-react';
 import { User, FeedbackLink, Message } from '../types';
+import { api } from '../services/api';
 import { StorageService } from '../services/storage';
 import { aiService } from '../services/gemini';
 import StoryCardModal from '../components/StoryCardModal';
@@ -41,36 +42,57 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   const [selectedMessageForStory, setSelectedMessageForStory] = useState<Message | null>(null);
 
   useEffect(() => {
-    setLinks(StorageService.getLinksForUser(user.id));
-    setMessages(StorageService.getMessagesForUser(user.id));
+    let isMounted = true;
+    const loadDashboardData = async () => {
+      try {
+        const [fetchedLinks, fetchedMessages] = await Promise.all([
+          api.links.getLinks(user.id),
+          api.messages.getMessages(user.id)
+        ]);
+        if (isMounted) {
+          setLinks(fetchedLinks);
+          setMessages(fetchedMessages);
+        }
+      } catch (err) {
+        console.warn('Dashboard live fetch error, fallback to storage:', err);
+        if (isMounted) {
+          setLinks(StorageService.getLinksForUser(user.id));
+          setMessages(StorageService.getMessagesForUser(user.id));
+        }
+      }
+    };
+
+    loadDashboardData();
+    return () => { isMounted = false; };
   }, [user.id]);
 
-  const handleCreateLink = (e: React.FormEvent) => {
+  const handleCreateLink = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newLink: FeedbackLink = {
-      id: Math.random().toString(36).substr(2, 9),
-      userId: user.id,
-      title: newLinkTitle || 'Untitled Mirror',
-      prompt: newLinkPrompt || "Tell me something you've been meaning to say...",
-      type: newLinkType,
-      createdAt: Date.now()
-    };
-    StorageService.saveLink(newLink);
-    setLinks([...links, newLink]);
-    setNewLinkTitle('');
-    setNewLinkPrompt('');
-    setSuggestedPrompts([]);
-    setIsCreatingLink(false);
+    try {
+      const created = await api.links.createLink(
+        newLinkTitle || 'Untitled Mirror',
+        newLinkPrompt || "Tell me something you've been meaning to say...",
+        newLinkType
+      );
+      setLinks(prev => [created, ...prev.filter(l => l.id !== created.id)]);
+      setNewLinkTitle('');
+      setNewLinkPrompt('');
+      setSuggestedPrompts([]);
+      setIsCreatingLink(false);
 
-    confetti({
-      particleCount: 40,
-      spread: 60,
-      origin: { y: 0.6 }
-    });
+      confetti({
+        particleCount: 40,
+        spread: 60,
+        origin: { y: 0.6 }
+      });
+    } catch (err: any) {
+      alert(err.message || 'Failed to create mirror link');
+    }
   };
 
   const handleCopy = (id: string) => {
-    const url = `${window.location.origin}/#/u/${user.username}/${id}`;
+    const baseUrl = `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}`;
+    const url = `${baseUrl}/#/u/${user.username}/${id}`;
     navigator.clipboard.writeText(url);
     setCopiedId(id);
 
@@ -83,22 +105,26 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDeleteLink = (id: string, e: React.MouseEvent) => {
+  const handleDeleteLink = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm('Are you sure you want to delete this mirror link?')) return;
-    const allLinks = StorageService.getLinks();
-    const updated = allLinks.filter(l => l.id !== id);
-    localStorage.setItem('mirror_me_links', JSON.stringify(updated));
-    setLinks(updated.filter(l => l.userId === user.id));
-    if (selectedLinkId === id) setSelectedLinkId('all');
+    try {
+      await api.links.deleteLink(id);
+      setLinks(prev => prev.filter(l => l.id !== id));
+      if (selectedLinkId === id) setSelectedLinkId('all');
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete link');
+    }
   };
 
-  const handleDeleteMessage = (id: string) => {
+  const handleDeleteMessage = async (id: string) => {
     if (!window.confirm('Delete this reflection?')) return;
-    const allMessages = StorageService.getMessages();
-    const updated = allMessages.filter(m => m.id !== id);
-    localStorage.setItem('mirror_me_messages', JSON.stringify(updated));
-    setMessages(updated.filter(m => m.userId === user.id));
+    try {
+      await api.messages.deleteMessage(id);
+      setMessages(prev => prev.filter(m => m.id !== id));
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete message');
+    }
   };
 
   const handleSuggestPrompts = async () => {
@@ -389,7 +415,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
 
       {/* Modal for Creating Link */}
       {isCreatingLink && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
           <div 
             className="fixed inset-0 bg-slate-950/85 backdrop-blur-md" 
             onClick={() => setIsCreatingLink(false)} 

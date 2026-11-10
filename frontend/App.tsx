@@ -72,18 +72,18 @@ const App: React.FC = () => {
         <Navbar user={user} setUser={setUser} />
         
         <Routes>
-          <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Home />} />
+          <Route path="/" element={user ? <Navigate to={user.role === 'admin' ? "/admin" : "/dashboard"} replace /> : <Home />} />
           <Route path="/workflow" element={<Workflow />} />
-          <Route path="/login" element={!user ? <Auth mode="login" setUser={setUser} /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/register" element={!user ? <Auth mode="register" setUser={setUser} /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/login" element={!user ? <Auth mode="login" setUser={setUser} /> : <Navigate to={user.role === 'admin' ? "/admin" : "/dashboard"} replace />} />
+          <Route path="/register" element={!user ? <Auth mode="register" setUser={setUser} /> : <Navigate to={user.role === 'admin' ? "/admin" : "/dashboard"} replace />} />
           <Route path="/dashboard" element={user ? <Dashboard user={user} /> : <Navigate to="/login" replace />} />
-          <Route path="/admin" element={user ? <Admin /> : <Navigate to="/login" replace />} />
+          <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to={user ? "/dashboard" : "/login"} replace />} />
           
-          {/* Public Routes */}
+          {/* Public Routes - Accessible to anyone at all */}
           <Route path="/u/:username/:linkId" element={<PublicSubmission />} />
           
           {/* Fallback */}
-          <Route path="*" element={<Navigate to={user ? "/dashboard" : "/"} replace />} />
+          <Route path="*" element={<Navigate to={user ? (user.role === 'admin' ? "/admin" : "/dashboard") : "/"} replace />} />
         </Routes>
       </div>
     </Router>

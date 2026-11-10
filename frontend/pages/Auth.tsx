@@ -26,11 +26,19 @@ const Auth: React.FC<AuthProps> = ({ mode, setUser }) => {
       if (mode === 'register') {
         const user = await api.auth.register(username.trim(), email.trim(), password);
         setUser(user);
-        navigate('/dashboard', { replace: true });
+        if (user.role === 'admin') {
+          navigate('/admin', { replace: true });
+        } else {
+          navigate('/dashboard', { replace: true });
+        }
       } else {
         const user = await api.auth.login(username.trim(), password);
         setUser(user);
-        navigate('/dashboard', { replace: true });
+        if (user.role === 'admin') {
+          navigate('/admin', { replace: true });
+        } else {
+          navigate('/dashboard', { replace: true });
+        }
       }
     } catch (err: any) {
       setError(err.message || 'Authentication failed. Please check your credentials.');
@@ -89,12 +97,14 @@ const Auth: React.FC<AuthProps> = ({ mode, setUser }) => {
         <form onSubmit={handleAuth} className="space-y-6">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1.5">Username</label>
+              <label className="block text-sm font-medium text-slate-400 mb-1.5">
+                {mode === 'login' ? 'Username or Email' : 'Username'}
+              </label>
               <input 
                 type="text" 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="johndoe"
+                placeholder={mode === 'login' ? 'username or your-email@example.com' : 'johndoe'}
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-inner"
                 required
               />

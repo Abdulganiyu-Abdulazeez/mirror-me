@@ -1,13 +1,14 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import confetti from 'canvas-confetti';
+import { api } from '../services/api';
 import { StorageService } from '../services/storage';
 import { FeedbackLink, User, Message } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
 
 const PublicSubmission: React.FC = () => {
   const { username, linkId } = useParams<{ username: string, linkId: string }>();
+  const [loading, setLoading] = useState(true);
   const [link, setLink] = useState<FeedbackLink | null>(null);
   const [recipient, setRecipient] = useState<User | null>(null);
   const [content, setContent] = useState('');
@@ -25,15 +26,46 @@ const PublicSubmission: React.FC = () => {
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
-    const allLinks = StorageService.getLinks();
-    const foundLink = allLinks.find(l => l.id === linkId);
-    if (foundLink) {
-      setLink(foundLink);
-      const allUsers = StorageService.getUsers();
-      const foundUser = allUsers.find(u => u.id === foundLink.userId);
-      setRecipient(foundUser || null);
-    }
-  }, [linkId]);
+    let isMounted = true;
+    const fetchLinkData = async () => {
+      if (!linkId || !username) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const { link: fetchedLink, recipient: fetchedRecipient } = await api.public.getLinkInfo(username, linkId);
+        if (isMounted) {
+          setLink(fetchedLink);
+          setRecipient(fetchedRecipient);
+        }
+      } catch (err) {
+        console.warn('Could not load mirror link via API, checking local storage:', err);
+        const allLinks = StorageService.getLinks();
+        const found = allLinks.find(l => l.id === linkId);
+        if (found && isMounted) {
+          setLink(found);
+          const allUsers = StorageService.getUsers();
+          const u = allUsers.find(user => user.id === found.userId);
+          setRecipient(u || {
+            id: found.userId,
+            username: found.username || username,
+            email: '',
+            createdAt: Date.now()
+          });
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchLinkData();
+    return () => {
+      isMounted = false;
+    };
+  }, [username, linkId]);
 
   const startRecording = async () => {
     try {
@@ -89,26 +121,32 @@ const PublicSubmission: React.FC = () => {
     if (!link || !recipient) return;
     
     setIsSubmitting(true);
-    let newMessage: Message = {
-      id: Math.random().toString(36).substr(2, 9),
-      linkId: link.id,
-      userId: recipient.id,
-      contentType,
-      createdAt: Date.now()
-    };
 
-    if (contentType === 'text' && content.trim()) {
-      newMessage.content = content;
-    } else if (contentType === 'audio' && audioBlob) {
-      newMessage.audioContent = await blobToBase64(audioBlob);
-    } else {
-      setIsSubmitting(false);
-      return;
-    }
+    try {
+      if (contentType === 'text') {
+        if (!content.trim()) {
+          setIsSubmitting(false);
+          return;
+        }
+        await api.public.submitReflection(link.id, 'text', {
+          content: content.trim(),
+          recipientId: recipient.id,
+          recipientUsername: recipient.username
+        });
+      } else if (contentType === 'audio') {
+        if (!audioBlob) {
+          setIsSubmitting(false);
+          return;
+        }
+        const audioBase64 = await blobToBase64(audioBlob);
+        await api.public.submitReflection(link.id, 'audio', {
+          audioBlob,
+          audioBase64,
+          recipientId: recipient.id,
+          recipientUsername: recipient.username
+        });
+      }
 
-    // Simulate network delay
-    setTimeout(() => {
-      StorageService.saveMessage(newMessage);
       setIsSubmitting(false);
       setSubmitted(true);
       confetti({
@@ -116,15 +154,28 @@ const PublicSubmission: React.FC = () => {
         spread: 60,
         origin: { y: 0.6 }
       });
-    }, 1000);
+    } catch (err: any) {
+      console.error('Submission error:', err);
+      alert(err.message || 'Failed to submit reflection. Please try again.');
+      setIsSubmitting(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-slate-400 text-sm">Opening mirror...</p>
+      </div>
+    );
+  }
 
   if (!link || !recipient) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
         <h2 className="text-3xl font-bold mb-4">Mirror Not Found</h2>
         <p className="text-slate-400 mb-8">This link might be broken or the mirror has been shattered.</p>
-        <Link to="/" className="text-indigo-400 font-bold">Go to Home Page</Link>
+        <Link to="/" className="text-indigo-400 font-bold hover:underline">Go to Home Page</Link>
       </div>
     );
   }
@@ -136,7 +187,7 @@ const PublicSubmission: React.FC = () => {
           <svg className="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
         </div>
         <h2 className="text-4xl font-extrabold mb-4">Mirror Updated!</h2>
-        <p className="text-xl text-slate-400 mb-12">Your {contentType === 'text' ? 'message' : 'voice note'} was sent anonymously to {recipient.username}.</p>
+        <p className="text-xl text-slate-400 mb-12">Your {contentType === 'text' ? 'message' : 'voice note'} was sent anonymously to @{recipient.username}.</p>
         
         <div className="glass p-8 rounded-3xl max-w-md w-full space-y-6">
           <h3 className="text-xl font-bold">Get your own mirror link?</h3>
@@ -168,7 +219,7 @@ const PublicSubmission: React.FC = () => {
       <div className="w-full max-w-xl space-y-8">
         <div className="text-center">
           <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 mx-auto mb-6 flex items-center justify-center text-white text-3xl font-bold shadow-xl border-4 border-white/10">
-            {recipient.username[0].toUpperCase()}
+            {recipient.username[0]?.toUpperCase() || 'M'}
           </div>
           <h2 className="text-3xl font-extrabold mb-2">@{recipient.username}</h2>
           <div className="inline-block px-4 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-slate-400 uppercase tracking-widest font-bold">
