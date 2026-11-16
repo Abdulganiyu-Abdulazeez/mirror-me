@@ -12,7 +12,7 @@ import {
   Mic, 
   ExternalLink 
 } from 'lucide-react';
-import { User, FeedbackLink, Message } from '../types';
+import { User, FeedbackLink, Message, Broadcast } from '../types';
 import { api } from '../services/api';
 import { StorageService } from '../services/storage';
 import { aiService } from '../services/gemini';
@@ -22,6 +22,7 @@ import AudioPlayer from '../components/AudioPlayer';
 const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   const [links, setLinks] = useState<FeedbackLink[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [selectedLinkId, setSelectedLinkId] = useState<string>('all');
   
   // Link creation modal state
@@ -45,13 +46,15 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
     let isMounted = true;
     const loadDashboardData = async () => {
       try {
-        const [fetchedLinks, fetchedMessages] = await Promise.all([
+        const [fetchedLinks, fetchedMessages, fetchedBroadcasts] = await Promise.all([
           api.links.getLinks(user.id),
-          api.messages.getMessages(user.id)
+          api.messages.getMessages(user.id),
+          api.broadcasts.getActive()
         ]);
         if (isMounted) {
           setLinks(fetchedLinks);
           setMessages(fetchedMessages);
+          setBroadcasts(fetchedBroadcasts);
         }
       } catch (err) {
         console.warn('Dashboard live fetch error, fallback to storage:', err);
@@ -189,6 +192,29 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
           Create New Mirror
         </button>
       </header>
+
+      {/* Broadcast Announcements Banner */}
+      {broadcasts.length > 0 && (
+        <div className="mb-8 space-y-3">
+          {broadcasts.map(b => (
+            <div 
+              key={b.id}
+              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-indigo-950/70 via-purple-950/60 to-pink-950/70 border border-indigo-500/30 flex items-start gap-3 shadow-lg relative overflow-hidden"
+            >
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0 text-base mt-0.5">
+                📢
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-bold text-white text-sm tracking-wide">{b.title}</h4>
+                <p className="text-slate-300 text-xs sm:text-sm mt-0.5 leading-relaxed">{b.message}</p>
+              </div>
+              <span className="text-[10px] text-slate-400 shrink-0 font-medium">
+                {new Date(b.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

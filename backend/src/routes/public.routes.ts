@@ -60,8 +60,8 @@ router.get('/links/:username/:linkId', async (req: Request, res: Response): Prom
   }
 });
 
-// POST /api/v1/public/links/:linkId/messages - Submit anonymous reflection
-router.post('/links/:linkId/messages', submissionLimiter, upload.single('audio'), async (req: Request, res: Response): Promise<void> => {
+// Handler for submitting anonymous reflection or review
+const handleReflectionSubmission = async (req: Request, res: Response): Promise<void> => {
   try {
     const linkId = String(req.params.linkId || '');
     const { contentType, content } = req.body;
@@ -99,13 +99,29 @@ router.post('/links/:linkId/messages', submissionLimiter, upload.single('audio')
       const filename = `voice-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.webm`;
       const audioBuffer = audioFile ? audioFile.buffer : Buffer.from(req.body.audioBase64.replace(/^data:audio\/\w+;base64,/, ''), 'base64');
 
-      // Upload to Supabase Storage bucket 'audio-reflections'
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('audio-reflections')
+      // Upload to Supabase Storage bucket 'voice-notes' (with fallback to 'audio-reflections')
+      let uploadError = null;
+      let uploadResult = await supabaseAdmin.storage
+        .from('voice-notes')
         .upload(filename, audioBuffer, {
           contentType: audioFile?.mimetype || 'audio/webm',
           upsert: false
         });
+
+      if (uploadResult.error) {
+        // Fallback try audio-reflections
+        const fallbackRes = await supabaseAdmin.storage
+          .from('audio-reflections')
+          .upload(filename, audioBuffer, {
+            contentType: audioFile?.mimetype || 'audio/webm',
+            upsert: false
+          });
+        if (fallbackRes.error) {
+          uploadError = uploadResult.error;
+        } else {
+          uploadResult = fallbackRes;
+        }
+      }
 
       if (uploadError) {
         console.error('Supabase storage upload error:', uploadError);
@@ -113,14 +129,15 @@ router.post('/links/:linkId/messages', submissionLimiter, upload.single('audio')
         return;
       }
 
+      const bucketUsed = uploadResult.data?.fullPath?.startsWith('audio-reflections') ? 'audio-reflections' : 'voice-notes';
       const { data: publicUrlData } = supabaseAdmin.storage
-        .from('audio-reflections')
+        .from(bucketUsed)
         .getPublicUrl(filename);
 
       audioUrl = publicUrlData.publicUrl;
     }
 
-    // Insert reflection into messages table tied to both recipient_id and recipient_username
+    // Insert reflection into messages table
     const { data: newMessage, error: insertError } = await supabaseAdmin
       .from('messages')
       .insert({
@@ -140,15 +157,36 @@ router.post('/links/:linkId/messages', submissionLimiter, upload.single('audio')
       return;
     }
 
+    // Also insert into reviews table (Feature Specification)
+    try {
+      await supabaseAdmin
+        .from('reviews')
+        .insert({
+          id: newMessage.id,
+          link_id: link.id,
+          type: finalContentType === 'audio' ? 'vn' : 'text',
+          content: finalContentType === 'audio' ? (audioUrl || '') : (messageContent || '')
+        });
+    } catch {
+      // Ignored if reviews table not created yet
+    }
+
     res.status(201).json({
       success: true,
       message: 'Reflection sent anonymously',
       id: newMessage.id
     });
-  } catch (err: any) {
-    console.error('Public submission error:', err);
-    res.status(500).json({ error: 'Server error while sending reflection' });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Server error while sending reflection';
+    console.error('Public submission error:', errorMsg);
+    res.status(500).json({ error: errorMsg });
   }
-});
+};
+
+// POST /api/v1/public/links/:linkId/messages - Submit anonymous reflection
+router.post('/links/:linkId/messages', submissionLimiter, upload.single('audio'), handleReflectionSubmission);
+
+// POST /api/v1/public/links/:linkId/reviews - Alias per Feature Specification
+router.post('/links/:linkId/reviews', submissionLimiter, upload.single('audio'), handleReflectionSubmission);
 
 export default router;

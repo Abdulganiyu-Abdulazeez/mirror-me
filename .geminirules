@@ -1,0 +1,71 @@
+# Global Workspace Rules: Mirror Me
+
+## 1. Core Engineering Standards
+- **Type Safety:** Zero `any` types allowed. All Supabase query responses, component props, and API actions must be strictly typed using TypeScript interfaces.
+- **Styling Architecture:** Use Tailwind CSS exclusively. Follow mobile-first design principles (all components must look and perform impeccably on iOS/Android mobile screens as well as desktop).
+- **Error Boundaries:** All asynchronous database mutations (link generation, audio recording uploads, admin toggles, user updates) must be wrapped in `try/catch` blocks with user-friendly notifications.
+- **File Organization:** Keep API communication, database calls, and storage logic in `services/` (frontend) or `routes/` & `controllers/` (backend). Do not embed heavy database logic inside presentational UI components.
+
+---
+
+## 2. Database Schema & Architecture Standards
+
+### Table: `profiles`
+- `id`: UUID (Primary Key, references `auth.users(id)` on delete cascade)
+- `username`: TEXT (Unique, Not Null)
+- `avatar_url`: TEXT (Nullable, references Supabase Storage `avatars` bucket)
+- `is_active`: BOOLEAN (Default `true` - disabling user terminates session and blocks submissions)
+- `last_active_at`: TIMESTAMPTZ (Default `now()`)
+- `role`: TEXT (Default `'user'`, check in `('user', 'admin')`)
+- `created_at`: TIMESTAMPTZ (Default `now()`)
+- `updated_at`: TIMESTAMPTZ (Default `now()`)
+
+### Table: `links`
+- `id`: TEXT or UUID (Primary Key, unique link identifier / slug)
+- `user_id`: UUID (Foreign Key -> `profiles(id)` on delete cascade)
+- `slug`: TEXT (Unique, Not Null - base62/random slug for URL routing `/u/[slug]`)
+- `title`: TEXT (Prompt title / label)
+- `prompt`: TEXT (Custom question or mirror prompt)
+- `type`: TEXT (Category: `'general'`, `'advice'`, `'confession'`, `'first-impression'`)
+- `is_active`: BOOLEAN (Default `true`)
+- `created_at`: TIMESTAMPTZ (Default `now()`)
+
+### Table: `reviews` (and backward-compatible `messages`)
+- `id`: UUID (Primary Key, default `gen_random_uuid()`)
+- `link_id`: TEXT/UUID (Foreign Key -> `links(id)` on delete cascade)
+- `type`: TEXT (Not Null: `'text'` or `'vn'`)
+- `content`: TEXT (Not Null: either text string or Supabase Storage public URL for voice notes)
+- `created_at`: TIMESTAMPTZ (Default `now()`)
+
+### Table: `broadcasts`
+- `id`: UUID (Primary Key, default `gen_random_uuid()`)
+- `title`: TEXT (Not Null)
+- `message`: TEXT (Not Null)
+- `created_at`: TIMESTAMPTZ (Default `now()`)
+
+---
+
+## 3. Negative Constraints & Security Rules
+- ❌ **No unauthenticated writes to reviews without valid link:** Row Level Security (RLS) policies allow anonymous inserts into `reviews` *only* if the target `link_id` exists, but block public reads.
+- ❌ **Private / Owner-Only Reads for Reviews:** Public visitors cannot read other people's reviews. Only the owner of the link can fetch and read their reviews.
+- ❌ **Zero Hardcoded Admin Credentials:** Admin routes (`/admin` and `/admin/workspace`) must strictly verify the authenticated user against `ADMIN_AUTHORIZED_EMAIL` (`haypexdev@gmail.com`) and database role flag `admin`.
+- ❌ **Zero Audio Blobs in Local Storage:** Voice note audio files must be stored in Supabase Storage (`voice-notes` bucket) and only referenced by URL.
+
+---
+
+## 4. Phased Execution Roadmap
+
+### Phase 1: Database Schema & Supabase RLS Policies
+Ensure `profiles`, `links`, `reviews`, and `broadcasts` tables have strict, idempotent RLS policies permitting anonymous submissions while restricting review reads to the link owner.
+
+### Phase 2: Authentication & Profile Management
+Ensure `/profile` enables updating username and uploading avatar pictures with live previews and availability verification.
+
+### Phase 3: Link Generation & Public Review Form (Text & VN)
+Ensure public submission route (`/u/:username/:linkId` or `/u/:slug`) allows sending both text and recorded voice notes using browser `MediaRecorder` API with zero auth required.
+
+### Phase 4: Recipient Dashboard & Responses Feed
+Ensure dashboard responses feed fetches ALL reviews/reflections tied to the user's links, with audio player for voice notes and text cards.
+
+### Phase 5: Secure Admin Workstation & Broadcast System
+Ensure `/admin/workspace` is guarded, provides user directory with `is_active` toggle, activity metrics filters (1, 7, 30 days), and broadcast creation.

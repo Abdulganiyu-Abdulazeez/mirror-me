@@ -7,7 +7,7 @@ import { FeedbackLink, User, Message } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
 
 const PublicSubmission: React.FC = () => {
-  const { username, linkId } = useParams<{ username: string, linkId: string }>();
+  const { username, linkId, slug } = useParams<{ username?: string; linkId?: string; slug?: string }>();
   const [loading, setLoading] = useState(true);
   const [link, setLink] = useState<FeedbackLink | null>(null);
   const [recipient, setRecipient] = useState<User | null>(null);
@@ -28,13 +28,14 @@ const PublicSubmission: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
     const fetchLinkData = async () => {
-      if (!linkId || !username) {
+      const targetParam = slug || linkId;
+      if (!targetParam) {
         setLoading(false);
         return;
       }
       try {
         setLoading(true);
-        const { link: fetchedLink, recipient: fetchedRecipient } = await api.public.getLinkInfo(username, linkId);
+        const { link: fetchedLink, recipient: fetchedRecipient } = await api.public.getLinkInfo(username || targetParam, linkId);
         if (isMounted) {
           setLink(fetchedLink);
           setRecipient(fetchedRecipient);
@@ -42,14 +43,14 @@ const PublicSubmission: React.FC = () => {
       } catch (err) {
         console.warn('Could not load mirror link via API, checking local storage:', err);
         const allLinks = StorageService.getLinks();
-        const found = allLinks.find(l => l.id === linkId);
+        const found = allLinks.find(l => l.id === targetParam || l.slug === targetParam);
         if (found && isMounted) {
           setLink(found);
           const allUsers = StorageService.getUsers();
           const u = allUsers.find(user => user.id === found.userId);
           setRecipient(u || {
             id: found.userId,
-            username: found.username || username,
+            username: found.username || username || 'recipient',
             email: '',
             createdAt: Date.now()
           });
@@ -65,7 +66,7 @@ const PublicSubmission: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [username, linkId]);
+  }, [username, linkId, slug]);
 
   const startRecording = async () => {
     try {

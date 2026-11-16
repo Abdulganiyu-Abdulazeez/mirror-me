@@ -80,9 +80,11 @@ const App: React.FC = () => {
           <Route path="/dashboard" element={user ? <Dashboard user={user} /> : <Navigate to="/login" replace />} />
           <Route path="/profile" element={user ? <Profile user={user} setUser={setUser} /> : <Navigate to="/login" replace />} />
           <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to={user ? "/dashboard" : "/login"} replace />} />
+          <Route path="/admin/workspace" element={user?.role === 'admin' ? <Admin /> : <Navigate to={user ? "/dashboard" : "/login"} replace />} />
           
           {/* Public Routes - Accessible to anyone at all */}
           <Route path="/u/:username/:linkId" element={<PublicSubmission />} />
+          <Route path="/u/:slug" element={<PublicSubmission />} />
           
           {/* Fallback */}
           <Route path="*" element={<Navigate to={user ? (user.role === 'admin' ? "/admin" : "/dashboard") : "/"} replace />} />

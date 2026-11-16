@@ -46,6 +46,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/links', linkRoutes);
 app.use('/api/v1/public', publicRoutes);
 app.use('/api/v1/messages', messageRoutes);
+app.use('/api/v1/reviews', messageRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/admin', adminRoutes);
 

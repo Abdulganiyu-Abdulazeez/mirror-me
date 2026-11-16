@@ -578,50 +578,113 @@ export const api = {
       try {
         const query = linkId && linkId !== 'all' ? `?linkId=${linkId}` : '';
         const data = await request<any[]>(`/messages${query}`);
-        return data.map(m => ({
-          id: m.id,
-          linkId: m.link_id || m.linkId,
-          userId: m.recipient_id || m.userId,
-          recipientUsername: m.recipient_username,
-          content: m.content,
-          audioContent: m.audio_url || m.audioContent,
-          contentType: m.content_type || m.contentType,
-          createdAt: new Date(m.created_at || m.createdAt).getTime(),
-          sentiment: m.sentiment
-        }));
+        if (Array.isArray(data)) {
+          return data.map(m => ({
+            id: m.id,
+            linkId: m.link_id || m.linkId,
+            userId: m.recipient_id || m.userId || userId,
+            recipientUsername: m.recipient_username,
+            content: m.content,
+            audioContent: m.audio_url || m.audioContent,
+            contentType: (m.content_type === 'audio' || m.type === 'vn') ? 'audio' : 'text',
+            createdAt: new Date(m.created_at || m.createdAt).getTime(),
+            sentiment: m.sentiment
+          }));
+        }
       } catch (backendErr) {
         console.warn('Backend get messages failed, trying Supabase direct:', backendErr);
       }
 
-      // 2. Try Supabase direct
+      // 2. Try Supabase direct (with link-correlation and reviews table union)
       const token = getAuthToken();
       if (SUPABASE_URL && SUPABASE_ANON && userId) {
         try {
-          let url = `${SUPABASE_URL}/rest/v1/messages?recipient_id=eq.${encodeURIComponent(userId)}&order=created_at.desc&select=*`;
+          const authHeaders = {
+            'apikey': SUPABASE_ANON,
+            'Authorization': `Bearer ${token || SUPABASE_ANON}`
+          };
+
+          // A. Fetch user's mirror links first to guarantee we capture all responses sent to user's links
+          let userLinkIds: string[] = [];
           if (linkId && linkId !== 'all') {
-            url += `&link_id=eq.${encodeURIComponent(linkId)}`;
+            userLinkIds = [linkId];
+          } else {
+            const linksRes = await fetch(`${SUPABASE_URL}/rest/v1/links?user_id=eq.${encodeURIComponent(userId)}&select=id`, {
+              headers: authHeaders
+            });
+            if (linksRes.ok) {
+              const lRows = await linksRes.json();
+              if (Array.isArray(lRows)) {
+                userLinkIds = lRows.map(l => l.id);
+              }
+            }
           }
-          const res = await fetch(url, {
-            headers: {
-              'apikey': SUPABASE_ANON,
-              'Authorization': `Bearer ${token || SUPABASE_ANON}`
+
+          const resultMap = new Map<string, Message>();
+
+          // B. Query messages table (by recipient_id OR link_id)
+          let msgUrl = `${SUPABASE_URL}/rest/v1/messages?order=created_at.desc&select=*`;
+          if (linkId && linkId !== 'all') {
+            msgUrl += `&link_id=eq.${encodeURIComponent(linkId)}`;
+          } else if (userLinkIds.length > 0) {
+            msgUrl += `&or=(recipient_id.eq.${encodeURIComponent(userId)},link_id.in.(${encodeURIComponent(userLinkIds.join(','))}))`;
+          } else {
+            msgUrl += `&recipient_id=eq.${encodeURIComponent(userId)}`;
+          }
+
+          const msgRes = await fetch(msgUrl, { headers: authHeaders });
+          if (msgRes.ok) {
+            const mRows = await msgRes.json();
+            if (Array.isArray(mRows)) {
+              for (const m of mRows) {
+                resultMap.set(m.id, {
+                  id: m.id,
+                  linkId: m.link_id,
+                  userId: m.recipient_id || userId,
+                  recipientUsername: m.recipient_username,
+                  content: m.content,
+                  audioContent: m.audio_url,
+                  contentType: m.content_type === 'audio' ? 'audio' : 'text',
+                  createdAt: new Date(m.created_at).getTime(),
+                  sentiment: m.sentiment
+                });
+              }
             }
-          });
-          if (res.ok) {
-            const rows = await res.json();
-            if (Array.isArray(rows) && rows.length > 0) {
-              return rows.map(m => ({
-                id: m.id,
-                linkId: m.link_id,
-                userId: m.recipient_id,
-                recipientUsername: m.recipient_username,
-                content: m.content,
-                audioContent: m.audio_url,
-                contentType: m.content_type,
-                createdAt: new Date(m.created_at).getTime(),
-                sentiment: m.sentiment
-              }));
-            }
+          }
+
+          // C. Query reviews table (Feature Specification)
+          if (userLinkIds.length > 0 || (linkId && linkId !== 'all')) {
+            try {
+              const targetLinkFilter = (linkId && linkId !== 'all') ? `id=eq.${encodeURIComponent(linkId)}` : `in.(${encodeURIComponent(userLinkIds.join(','))})`;
+              const revRes = await fetch(`${SUPABASE_URL}/rest/v1/reviews?link_id=${targetLinkFilter}&order=created_at.desc&select=*`, {
+                headers: authHeaders
+              });
+              if (revRes.ok) {
+                const rRows = await revRes.json();
+                if (Array.isArray(rRows)) {
+                  for (const r of rRows) {
+                    if (!resultMap.has(r.id)) {
+                      const isVn = r.type === 'vn' || r.type === 'audio';
+                      resultMap.set(r.id, {
+                        id: r.id,
+                        linkId: r.link_id,
+                        userId: userId,
+                        content: isVn ? null : r.content,
+                        audioContent: isVn ? r.content : null,
+                        contentType: isVn ? 'audio' : 'text',
+                        createdAt: new Date(r.created_at).getTime()
+                      });
+                    }
+                  }
+                }
+              }
+            } catch {}
+          }
+
+          // Sort descending by createdAt
+          const combined = Array.from(resultMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+          if (combined.length > 0) {
+            return combined;
           }
         } catch (supErr) {
           console.warn('Supabase direct getMessages failed:', supErr);
@@ -659,43 +722,51 @@ export const api = {
 
   public: {
     // Accessible by anyone at all — no account and no sign-in required!
-    getLinkInfo: async (username: string, linkId: string): Promise<{ link: FeedbackLink; recipient: User }> => {
-      // 1. Try Backend API
-      try {
-        const data = await request<{
-          linkId: string;
-          recipientId: string;
-          recipientUsername: string;
-          title: string;
-          prompt: string;
-          type: FeedbackLink['type'];
-        }>(`/public/links/${encodeURIComponent(username)}/${encodeURIComponent(linkId)}`);
+    getLinkInfo: async (usernameOrSlug: string, linkId?: string): Promise<{ link: FeedbackLink; recipient: User }> => {
+      const targetSlug = linkId || usernameOrSlug;
 
-        return {
-          link: {
-            id: data.linkId,
-            userId: data.recipientId,
-            username: data.recipientUsername,
-            title: data.title,
-            prompt: data.prompt,
-            type: data.type,
-            createdAt: Date.now()
-          },
-          recipient: {
-            id: data.recipientId,
-            username: data.recipientUsername,
-            email: '',
-            createdAt: Date.now()
-          }
-        };
-      } catch (backendErr) {
-        console.warn('Backend link lookup failed, trying direct Supabase lookup:', backendErr);
+      // 1. Try Backend API
+      if (linkId) {
+        try {
+          const data = await request<{
+            linkId: string;
+            recipientId: string;
+            recipientUsername: string;
+            title: string;
+            prompt: string;
+            type: FeedbackLink['type'];
+          }>(`/public/links/${encodeURIComponent(usernameOrSlug)}/${encodeURIComponent(linkId)}`);
+
+          return {
+            link: {
+              id: data.linkId,
+              userId: data.recipientId,
+              username: data.recipientUsername,
+              title: data.title,
+              prompt: data.prompt,
+              type: data.type,
+              createdAt: Date.now()
+            },
+            recipient: {
+              id: data.recipientId,
+              username: data.recipientUsername,
+              email: '',
+              createdAt: Date.now()
+            }
+          };
+        } catch (backendErr) {
+          console.warn('Backend link lookup failed, trying direct Supabase lookup:', backendErr);
+        }
       }
 
       // 2. Try direct Supabase PostgREST (publicly readable via RLS policy)
       if (SUPABASE_URL && SUPABASE_ANON) {
         try {
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/links?id=eq.${encodeURIComponent(linkId)}&is_active=eq.true&select=*`, {
+          const filter = linkId
+            ? `id=eq.${encodeURIComponent(linkId)}`
+            : `or=(id.eq.${encodeURIComponent(targetSlug)},slug.eq.${encodeURIComponent(targetSlug)})`;
+
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/links?${filter}&is_active=eq.true&select=*`, {
             headers: {
               'apikey': SUPABASE_ANON,
               'Authorization': `Bearer ${SUPABASE_ANON}`
@@ -705,7 +776,7 @@ export const api = {
             const rows = await res.json();
             if (rows && rows.length > 0) {
               const l = rows[0];
-              let recipientUsername = l.username || username;
+              let recipientUsername = l.username || usernameOrSlug;
 
               const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(l.user_id)}&select=id,username,avatar_url`, {
                 headers: {
@@ -728,6 +799,7 @@ export const api = {
                 link: {
                   id: l.id,
                   userId: l.user_id,
+                  slug: l.slug || l.id,
                   username: recipientUsername,
                   title: l.title,
                   prompt: l.prompt,
@@ -751,7 +823,7 @@ export const api = {
 
       // 3. Fallback to localStorage
       const allLinks = StorageService.getLinks();
-      const foundLink = allLinks.find(l => l.id === linkId);
+      const foundLink = allLinks.find(l => l.id === targetSlug || l.slug === targetSlug);
       if (!foundLink) throw new Error('Mirror not found or link has expired');
       const allUsers = StorageService.getUsers();
       const foundUser = allUsers.find(u => u.id === foundLink.userId);
@@ -759,7 +831,7 @@ export const api = {
         link: foundLink,
         recipient: foundUser || {
           id: foundLink.userId,
-          username: foundLink.username || username,
+          username: foundLink.username || usernameOrSlug,
           email: '',
           createdAt: Date.now()
         }
@@ -870,6 +942,23 @@ export const api = {
             });
 
             if (insertRes.ok) {
+              // Also insert into reviews table (Feature Specification)
+              try {
+                await fetch(`${SUPABASE_URL}/rest/v1/reviews`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_ANON,
+                    'Authorization': `Bearer ${SUPABASE_ANON}`,
+                    'Prefer': 'return=minimal'
+                  },
+                  body: JSON.stringify({
+                    link_id: linkId,
+                    type: contentType === 'audio' ? 'vn' : 'text',
+                    content: contentType === 'audio' ? (audioUrlToSave || '') : (payload.content || '')
+                  })
+                });
+              } catch {}
               return;
             } else {
               console.warn('Supabase direct message submission rejected:', insertRes.status, await insertRes.text());
@@ -995,6 +1084,245 @@ export const api = {
       }
 
       return StorageService.getMessages();
+    },
+
+    getUsers: async (filter: '1d' | '7d' | '30d' | 'all' = 'all'): Promise<User[]> => {
+      // 1. Try Backend API
+      try {
+        const data = await request<any[]>(`/admin/users?filter=${filter}`);
+        if (Array.isArray(data)) {
+          return data.map(u => ({
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            role: u.role || 'user',
+            avatarUrl: u.avatar_url,
+            isActive: u.is_active !== false,
+            lastActiveAt: u.last_active_at,
+            createdAt: new Date(u.created_at).getTime()
+          }));
+        }
+      } catch {}
+
+      // 2. Try Supabase direct
+      const token = getAuthToken();
+      if (SUPABASE_URL && SUPABASE_ANON) {
+        try {
+          let url = `${SUPABASE_URL}/rest/v1/profiles?order=created_at.desc&select=*`;
+          const now = Date.now();
+          if (filter === '1d') {
+            const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+            url += `&last_active_at=gte.${oneDayAgo}`;
+          } else if (filter === '7d') {
+            const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+            url += `&last_active_at=gte.${sevenDaysAgo}`;
+          } else if (filter === '30d') {
+            const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+            url += `&last_active_at=gte.${thirtyDaysAgo}`;
+          }
+
+          const res = await fetch(url, {
+            headers: {
+              'apikey': SUPABASE_ANON,
+              'Authorization': `Bearer ${token || SUPABASE_ANON}`
+            }
+          });
+          if (res.ok) {
+            const rows = await res.json();
+            if (Array.isArray(rows)) {
+              return rows.map(u => ({
+                id: u.id,
+                username: u.username,
+                email: u.email,
+                role: u.role || 'user',
+                avatarUrl: u.avatar_url,
+                isActive: u.is_active !== false,
+                lastActiveAt: u.last_active_at,
+                createdAt: new Date(u.created_at).getTime()
+              }));
+            }
+          }
+        } catch {}
+      }
+
+      return StorageService.getUsers();
+    },
+
+    toggleUserActive: async (userId: string, currentStatus: boolean): Promise<boolean> => {
+      const nextStatus = !currentStatus;
+      // 1. Try Backend API
+      try {
+        const data = await request<{ isActive: boolean }>(`/admin/users/${userId}/toggle-active`, {
+          method: 'PATCH'
+        });
+        return data.isActive;
+      } catch {}
+
+      // 2. Try Supabase direct
+      const token = getAuthToken();
+      if (SUPABASE_URL && SUPABASE_ANON) {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_ANON,
+              'Authorization': `Bearer ${token || SUPABASE_ANON}`
+            },
+            body: JSON.stringify({ is_active: nextStatus })
+          });
+          if (res.ok) return nextStatus;
+        } catch {}
+      }
+      return nextStatus;
+    },
+
+    getBroadcasts: async (): Promise<{ id: string; title: string; message: string; createdAt: number }[]> => {
+      // 1. Try Backend API
+      try {
+        const data = await request<any[]>('/admin/broadcasts');
+        if (Array.isArray(data)) {
+          return data.map(b => ({
+            id: b.id,
+            title: b.title,
+            message: b.message,
+            createdAt: new Date(b.created_at).getTime()
+          }));
+        }
+      } catch {}
+
+      // 2. Try Supabase direct
+      const token = getAuthToken();
+      if (SUPABASE_URL && SUPABASE_ANON) {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/broadcasts?order=created_at.desc&select=*`, {
+            headers: {
+              'apikey': SUPABASE_ANON,
+              'Authorization': `Bearer ${token || SUPABASE_ANON}`
+            }
+          });
+          if (res.ok) {
+            const rows = await res.json();
+            if (Array.isArray(rows)) {
+              return rows.map(b => ({
+                id: b.id,
+                title: b.title,
+                message: b.message,
+                createdAt: new Date(b.created_at).getTime()
+              }));
+            }
+          }
+        } catch {}
+      }
+      return [];
+    },
+
+    createBroadcast: async (title: string, message: string): Promise<{ id: string; title: string; message: string; createdAt: number }> => {
+      // 1. Try Backend API
+      try {
+        const data = await request<any>('/admin/broadcasts', {
+          method: 'POST',
+          body: JSON.stringify({ title, message })
+        });
+        return {
+          id: data.id,
+          title: data.title,
+          message: data.message,
+          createdAt: new Date(data.created_at).getTime()
+        };
+      } catch {}
+
+      // 2. Try Supabase direct
+      const token = getAuthToken();
+      if (SUPABASE_URL && SUPABASE_ANON) {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/broadcasts`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_ANON,
+            'Authorization': `Bearer ${token || SUPABASE_ANON}`,
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify({ title: title.trim(), message: message.trim() })
+        });
+        if (res.ok) {
+          const rows = await res.json();
+          const row = Array.isArray(rows) ? rows[0] : rows;
+          return {
+            id: row?.id || Math.random().toString(36).substr(2, 9),
+            title: row?.title || title,
+            message: row?.message || message,
+            createdAt: new Date(row?.created_at || Date.now()).getTime()
+          };
+        }
+      }
+
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        title,
+        message,
+        createdAt: Date.now()
+      };
+    },
+
+    deleteBroadcast: async (id: string): Promise<void> => {
+      try {
+        await request(`/admin/broadcasts/${id}`, { method: 'DELETE' });
+      } catch {
+        const token = getAuthToken();
+        if (SUPABASE_URL && SUPABASE_ANON) {
+          try {
+            await fetch(`${SUPABASE_URL}/rest/v1/broadcasts?id=eq.${encodeURIComponent(id)}`, {
+              method: 'DELETE',
+              headers: {
+                'apikey': SUPABASE_ANON,
+                'Authorization': `Bearer ${token || SUPABASE_ANON}`
+              }
+            });
+          } catch {}
+        }
+      }
+    }
+  },
+
+  broadcasts: {
+    getActive: async (): Promise<{ id: string; title: string; message: string; createdAt: number }[]> => {
+      // 1. Try Backend API
+      try {
+        const data = await request<any[]>('/admin/broadcasts');
+        if (Array.isArray(data)) {
+          return data.map(b => ({
+            id: b.id,
+            title: b.title,
+            message: b.message,
+            createdAt: new Date(b.created_at).getTime()
+          }));
+        }
+      } catch {}
+
+      // 2. Try Supabase direct (public read enabled by RLS policy)
+      if (SUPABASE_URL && SUPABASE_ANON) {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/broadcasts?order=created_at.desc&limit=5&select=*`, {
+            headers: {
+              'apikey': SUPABASE_ANON,
+              'Authorization': `Bearer ${SUPABASE_ANON}`
+            }
+          });
+          if (res.ok) {
+            const rows = await res.json();
+            if (Array.isArray(rows)) {
+              return rows.map(b => ({
+                id: b.id,
+                title: b.title,
+                message: b.message,
+                createdAt: new Date(b.created_at).getTime()
+              }));
+            }
+          }
+        } catch {}
+      }
+      return [];
     }
   },
 
